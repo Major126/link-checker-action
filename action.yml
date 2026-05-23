@@ -1,0 +1,79 @@
+name: 'Markdown Link Checker'
+description: 'Scan markdown files in the repository and check all hyperlinks for validity.'
+author: 'Major126'
+
+branding:
+  icon: 'link'
+  color: 'green'
+
+inputs:
+  files-path:
+    description: 'Glob pattern for markdown files to check (e.g., "**/*.md").'
+    required: false
+    default: '**/*.md'
+  exclude-files:
+    description: 'Files to exclude (glob pattern, comma-separated).'
+    required: false
+    default: ''
+  max-concurrency:
+    description: 'Maximum number of parallel link checks.'
+    required: false
+    default: '10'
+  timeout:
+    description: 'Timeout in seconds for each link check.'
+    required: false
+    default: '10'
+  fail-on-broken:
+    description: 'Fail the workflow if broken links are found. (true/false)'
+    required: false
+    default: 'false'
+  base-url:
+    description: 'Base URL for resolving relative links.'
+    required: false
+    default: ''
+
+outputs:
+  total-links:
+    description: 'Total number of links checked.'
+  broken-links:
+    description: 'Number of broken links found.'
+  report-file:
+    description: 'Path to the generated report file.'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: 'Check links in markdown files'
+      shell: bash
+      env:
+        FILES_PATH: ${{ inputs.files-path }}
+        EXCLUDE_FILES: ${{ inputs.exclude-files }}
+        MAX_CONCURRENCY: ${{ inputs.max-concurrency }}
+        TIMEOUT: ${{ inputs.timeout }}
+        FAIL_ON_BROKEN: ${{ inputs.fail-on-broken }}
+        BASE_URL: ${{ inputs.base-url }}
+      run: |
+        # Ensure the script is executable
+        chmod +x ${{ github.action_path }}/scripts/check-links.sh
+        # Run the checker
+        ${{ github.action_path }}/scripts/check-links.sh
+
+    - name: 'Upload link check report'
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: link-check-report
+        path: ${{ runner.temp }}/link-checker-report.md
+        if-no-files-found: ignore
+
+    - name: 'Comment report on PR'
+      if: github.event_name == 'pull_request' && always()
+      shell: bash
+      run: |
+        REPORT="${{ runner.temp }}/link-checker-report.md"
+        if [ -f "$REPORT" ]; then
+          gh pr comment ${{ github.event.pull_request.number }} --body "$(cat $REPORT)" \
+            --repo ${{ github.repository }}
+        fi
+      env:
+        GH_TOKEN: ${{ github.token }}
